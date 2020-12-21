@@ -1,5 +1,7 @@
 package com.shallowlightning;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;
@@ -14,15 +16,22 @@ import org.elasticsearch.client.indices.CreateIndexRequest;
 import org.elasticsearch.client.indices.CreateIndexResponse;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.aggregations.*;
+import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.Aggregations;
+import org.elasticsearch.search.aggregations.BucketOrder;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.NumericMetricsAggregation;
-import org.elasticsearch.search.aggregations.metrics.TopHits;
+import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
+import org.elasticsearch.search.aggregations.pipeline.PipelineAggregatorBuilders;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.sort.SortOrder;
+
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,27 +54,43 @@ public class App {
 //        metadata.put("id", "id");
 //        new App().index("sample", "risk_scores", metadata);
 
+//        long start;long finish;
+//
+//        // complex aggregation
+//        start =System.currentTimeMillis();
+//        new App().search1();
+//        finish =System.currentTimeMillis();
+//        System.out.println("Origin: "+(finish-start));
+//
+//        start =System.currentTimeMillis();
+//        new App().search2();
+//        finish =System.currentTimeMillis();
+//        System.out.println("Solution: "+(finish-start));
 
-        long start;long finish;
+//        // get query result
+//        new App().search3();
 
-        start =System.currentTimeMillis();
-        new App().search1();
-        finish =System.currentTimeMillis();
-        System.out.println("Origin: "+(finish-start));
+        // match all query
+        new App().search4();
 
-        start =System.currentTimeMillis();
-        new App().search2();
-        finish =System.currentTimeMillis();
-        System.out.println("Solution: "+(finish-start));
+        // terms query by _id
+        new App().search5();
 
+        // match query by entityName
+        new App().search6();
+
+        // exists query
+        new App().search7();
 
         // close the client
         new App().client.close();
+
+
     }
 
     public void createIndex(){
         // initialize request
-        CreateIndexRequest request = new CreateIndexRequest("risk_scores");
+        CreateIndexRequest request = new CreateIndexRequest("risk_scores*");
         // source request
         String a = "{ \"settings\": { \"number_of_shards\": \"2\", \"number_of_replicas\": \"1\" }, \"mappings\" : { \"properties\" : { \"entityName\" : { \"type\" : \"text\", \"fields\" : {\"raw\" : {\"type\" : \"keyword\"}} }, \"entityType\" : { \"type\" : \"text\", \"fields\" : {\"raw\" : {\"type\" : \"keyword\"}} }, \"entityHash\" : {\"type\" : \"keyword\"},\"hasAnomalies\" : {\"type\" : \"boolean\"}, \"id\" : {\"type\" : \"keyword\"}, \"score\" : {\"type\" : \"double\"}, \"timestamp\" : {\"type\" : \"date\"}} }}\n" ;
         request.source(a, XContentType.JSON);
@@ -100,7 +125,7 @@ public class App {
         for(JsonNode node:jsonDocuments){
             System.out.println(node.toString());
             id++;
-            IndexRequest indexRequest = new IndexRequest(index);
+            IndexRequest indexRequest = new IndexRequest(index, "_doc");
             // source the indexrequest
             indexRequest.source(node.toString(), XContentType.JSON);
             // get the metadata for this doc: id
@@ -271,4 +296,137 @@ public class App {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         System.out.println(topRiskyEntities.toString());
     }
+
+    public void search3() throws IOException {
+        SearchRequest searchRequest = new SearchRequest("risk_scores*");
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchRequest.indicesOptions(IndicesOptions.fromOptions(true, true, true, true));
+        searchRequest.requestCache(true);
+        searchSourceBuilder.trackTotalHits(true);
+
+        // create boolean query builder
+        BoolQueryBuilder boolQueryBuilder = boolQuery();
+        withEntityTypes(Collections.singletonList(EntityType.user), boolQueryBuilder);
+        includeNonAnomalous(false, boolQueryBuilder);
+        // filter bool query builder, no need for score(google bool filter query)
+        searchSourceBuilder.query(boolQuery().filter(boolQueryBuilder));
+        searchSourceBuilder.size(10).from(0).version(false);
+
+        SearchRequest request= searchRequest.source(searchSourceBuilder);
+        SearchResponse searchResponse = client.search(request, RequestOptions.DEFAULT);
+        /////
+//        SearchHit[] result = searchResponse.getHits().getHits();
+//        for(SearchHit hit:result){
+//            String s = hit.getSourceAsString();System.out.println(s);
+//        }
+        /////
+        List<RiskScores> rss = getHits(searchResponse);
+    }
+
+    // this is the match all query
+    //curl -H 'Content-Type:application/json' -XPOST localhost:9200/risk_scores/_search?pretty -d \
+    //        '{
+    //             "query":{
+    //                 "match_all":{}
+    //              }
+    //          }'
+    public void search4() throws IOException {
+        System.out.println("match all query");
+        SearchRequest searchRequest = new SearchRequest("risk_scores");
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchSourceBuilder.query(QueryBuilders.matchAllQuery());
+        searchRequest.source(searchSourceBuilder);
+
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+        List<RiskScores> result = getHits(searchResponse);
+        System.out.println("How many results: "+result.size());
+        for(RiskScores rs:result){
+            System.out.println(rs);
+        }
+    }
+
+    // this is the match all query
+    //curl -H 'Content-Type:application/json' -XPOST localhost:9200/risk_scores/_search?pretty -d \
+    //        '{
+    //             "query":{
+    //                 "terms":{
+    //                      "_id":["14", "15"]
+    //                 }
+    //              }
+    //          }'
+    public void search5() throws IOException {
+        System.out.println("query by id");
+        SearchRequest searchRequest = new SearchRequest("risk_scores");
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchSourceBuilder.query(QueryBuilders.termsQuery("_id", new String[]{"14","15"}));
+        searchRequest.source(searchSourceBuilder);
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+        List<RiskScores> result = getHits(searchResponse);
+        System.out.println("How many results: "+result.size());
+        for(RiskScores rs:result){
+            System.out.println(rs);
+        }
+    }
+
+    // curl -H 'Content-Type:application/json' -XGET localhost:9200/risk_scores/_search\?pretty -d \
+    // '{
+    //     "query":{
+    //         "match":{
+    //             "entityName":"Solid-State.local"
+    //          }
+    //      }
+    //  }'
+    public void search6() throws IOException{
+        System.out.println("match query entity name");
+        SearchRequest searchRequest = new SearchRequest("risk_scores");
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchSourceBuilder.query(QueryBuilders.matchQuery("entityName", "Solid-State.local"));
+        searchRequest.source(searchSourceBuilder);
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+        List<RiskScores> result = getHits(searchResponse);
+        System.out.println("How many results: "+result.size());
+        for(RiskScores rs:result){
+            System.out.println(rs);
+        }
+    }
+
+    // curl -H 'Content-Type:application/json' localhost:9200/risk_scores/_search\?pretty -d \
+    // '{
+    //     "query":{
+    //         "exists":{
+    //             "field":"hasAnomalies"
+    //          }
+    //      }
+    //  }'
+    public void search7() throws IOException{
+        System.out.println("exists query");
+        SearchRequest searchRequest = new SearchRequest("risk_scores");
+        SearchSourceBuilder searchSourceBuilder =  new SearchSourceBuilder();
+        searchSourceBuilder.query(QueryBuilders.existsQuery("hasAnomalies"));
+        searchRequest.source(searchSourceBuilder);
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+        List<RiskScores> result = getHits(searchResponse);
+        System.out.println("How many results: "+result.size());
+        for(RiskScores rs:result){
+            System.out.println(rs);
+        }
+    }
+
+    public List<RiskScores> getHits(SearchResponse searchResponse) throws JsonProcessingException {
+        SearchHits searchHits = searchResponse.getHits();
+        List<RiskScores> hits = new ArrayList();
+        if(searchHits.getTotalHits() == 0){
+            return hits;
+        }
+        for(SearchHit hit: searchHits.getHits()){
+            ObjectMapper map = new ObjectMapper();
+            map.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            RiskScores parsedHit = map.readValue(hit.getSourceAsString(), RiskScores.class);
+            if(parsedHit!=null){
+                hits.add(parsedHit);
+            }
+        }
+        return hits;
+    }
+
 }
