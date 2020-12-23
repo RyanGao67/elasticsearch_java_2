@@ -14,6 +14,10 @@ import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
 import org.elasticsearch.client.indices.CreateIndexResponse;
+import org.elasticsearch.client.indices.GetIndexRequest;
+import org.elasticsearch.client.indices.GetIndexResponse;
+import org.elasticsearch.cluster.metadata.MappingMetaData;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -82,8 +86,44 @@ public class App {
         // exists query
         new App().search7();
 
+        // query index health
+        new App().indexInfo();
+
         // close the client
         new App().client.close();
+
+
+    }
+
+    public void indexInfo() throws IOException {
+        GetIndexRequest request = new GetIndexRequest("risk_scores*");
+        request
+                .includeDefaults(true)
+                .indicesOptions(IndicesOptions.LENIENT_EXPAND_OPEN);
+        GetIndexResponse getIndexResponse = client.indices().get(request, RequestOptions.DEFAULT);
+        MappingMetaData indexMappings = getIndexResponse.getMappings().get("risk_scores");
+        Map<String, Object> indexTypeMappings = indexMappings.getSourceAsMap();
+        System.out.println(indexTypeMappings);
+        Map<String, Settings> result = getIndexResponse.getSettings();
+        System.out.println(result);
+//        {properties=
+//        {score={type=double},
+//        entityHash={type=keyword},
+//        entityName={type=text, fields={raw={type=keyword}}},
+//        entityType={type=text, fields={raw={type=keyword}}},
+//        hasAnomalies={type=boolean},
+//        id={type=keyword},
+//        timestamp={type=date}}
+//        }
+
+//        {risk_scores={
+//        "index.creation_date":"1607695392656",
+//        "index.number_of_replicas":"1",
+//        "index.number_of_shards":"2",
+//        "index.provided_name":"risk_scores",
+//        "index.uuid":"CM3qRIxWTAOFKTQxNFLUpw",
+//        "index.version.created":"6081399"}
+//        }
 
 
     }
