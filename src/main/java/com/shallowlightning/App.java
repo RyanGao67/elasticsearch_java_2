@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;
 import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.IndicesOptions;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
@@ -18,6 +20,7 @@ import org.elasticsearch.client.indices.GetIndexRequest;
 import org.elasticsearch.client.indices.GetIndexResponse;
 import org.elasticsearch.cluster.metadata.MappingMetaData;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -49,30 +52,30 @@ public class App {
 
     public static void main(String[] args) throws IOException {
 
-//        // create index
-//        new App().createIndex();
-//
-//        // populate the index
-//        Map<String, String> metadata = new HashMap();
-//        metadata.put("routing", "entityHash");
-//        metadata.put("id", "id");
-//        new App().index("sample", "risk_scores", metadata);
+        // create index
+        new App().createIndex();
 
-//        long start;long finish;
-//
-//        // complex aggregation
-//        start =System.currentTimeMillis();
-//        new App().search1();
-//        finish =System.currentTimeMillis();
-//        System.out.println("Origin: "+(finish-start));
-//
-//        start =System.currentTimeMillis();
-//        new App().search2();
-//        finish =System.currentTimeMillis();
-//        System.out.println("Solution: "+(finish-start));
+        // populate the index
+        Map<String, String> metadata = new HashMap();
+        metadata.put("routing", "entityHash");
+        metadata.put("id", "id");
+        new App().index("sample", "risk_scores", metadata);
 
-//        // get query result
-//        new App().search3();
+        long start;long finish;
+
+        // complex aggregation
+        start =System.currentTimeMillis();
+        new App().search1();
+        finish =System.currentTimeMillis();
+        System.out.println("Origin: "+(finish-start));
+
+        start =System.currentTimeMillis();
+        new App().search2();
+        finish =System.currentTimeMillis();
+        System.out.println("Solution: "+(finish-start));
+
+        // get query result
+        new App().search3();
 
         // match all query
         new App().search4();
@@ -89,9 +92,17 @@ public class App {
         // query index health
         new App().indexInfo();
 
+        // delete index
+        new App().deleteIndex("risk_scores");
+
         // close the client
         new App().client.close();
 
+    }
+
+    public void deleteIndex(String indexToBeDeleted) throws IOException {
+        DeleteIndexRequest request = new DeleteIndexRequest("risk_scores");
+        AcknowledgedResponse deleteIndexResponse = client.indices().delete(request, RequestOptions.DEFAULT);
 
     }
 
